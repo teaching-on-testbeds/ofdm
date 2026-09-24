@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-OFDM scope: browser UI for the OFDM lab (run with "bokeh serve").
+OFDM scope: browser UI for the OFDM lab receiver (run with "bokeh serve").
 
-Controls for both radios are on the left; the plots are in three tabs:
+The receiver controls are on the left; the plots are in three tabs:
   1. Time-frequency grid   live spectrum and waterfall
   2. Orthogonality         one OFDM symbol through a zero-padded FFT, the
                            FFT output bins, and the received constellation
   3. Resource grid         what was sent and received on every subcarrier of
                            every OFDM symbol in one frame
 
+The sample rate and FFT size must match the ones ofdm_tx.py is using.
+
 Example:
-  bokeh serve ofdm_scope.py --port 5006 --args --tx-host node1-2
+  bokeh serve ofdm_scope.py --port 5006 --args --freq 2400e6
 """
 import argparse
 import colorsys
@@ -24,7 +26,7 @@ from bokeh.io import curdoc
 from bokeh.layouts import column, gridplot, row
 from bokeh.models import (CheckboxGroup, ColorBar, ColumnDataSource, Div, LinearColorMapper,
                           Range1d, Select, SingleIntervalTicker, Slider, Span,
-                          Spinner, TabPanel, Tabs, TextInput, Toggle)
+                          TabPanel, Tabs, Toggle)
 from bokeh.palettes import Category10_10, Inferno256, Viridis256
 from bokeh.plotting import figure
 
@@ -32,33 +34,25 @@ import ofdm_common as oc
 import ofdm_rx
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--tx-host", default="node1-2")
-ap.add_argument("--tx-port", type=int, default=8765)
 ap.add_argument("-f", "--freq", type=float, default=2400e6)
 a = ap.parse_args(sys.argv[1:])
 
-be = ofdm_rx.get_backend(tx_host=a.tx_host, tx_port=a.tx_port, freq=a.freq)
+receiver = ofdm_rx.get_receiver(freq=a.freq)
 doc = curdoc()
 doc.title = "OFDM scope"
 
 PHASE = ["#%02x%02x%02x" % tuple(int(255 * c) for c in colorsys.hsv_to_rgb(i / 256, 0.75, 0.95))
          for i in range(256)]
-MODES = [("all", "All used subcarriers"), ("list", "Only these subcarriers"),
-         ("every", "Every k-th subcarrier"), ("paint", "Paint text")]
 RATES = [(str(int(r)), "%g kS/s" % (r / 1e3) if r < 1e6 else "%g MS/s" % (r / 1e6))
          for r in oc.SAMP_RATES]
 
 # ------------------------------------------------------------------ controls
 
-cfg = be.config
-fs_sel = Select(title="Sample rate", options=RATES, value=str(int(cfg["samp_rate"])))
-n_sel = Select(title="FFT size N", options=[str(n) for n in oc.FFT_SIZES],
-               value=str(cfg["fft_len"]))
-mode_sel = Select(title="Subcarriers on", options=MODES, value=cfg["spec"]["mode"])
-k_input = TextInput(title="Subcarrier indices", value="5")
-step_input = Spinner(title="Turn on every k-th subcarrier, k =", low=1, high=64, step=1, value=4)
-text_input = TextInput(title="Text", value="NYU", max_length=12)
-tx_gain = Slider(title="TX gain (dB)", start=40, end=89.5, step=0.5, value=cfg["tx_gain"])
+cfg = receiver.config
+fs_sel = Select(title="Sample rate (same as the transmitter)", options=RATES,
+                value=str(int(cfg["samp_rate"])))
+n_sel = Select(title="FFT size N (same as the transmitter)",
+               options=[str(n) for n in oc.FFT_SIZES], value=str(cfg["fft_len"]))
 rx_gain = Slider(title="RX gain (dB)", start=0, end=76, step=1, value=cfg["rx_gain"])
 rx_opts = CheckboxGroup(labels=["Correct CFO", "Track common phase with pilots"],
                         active=[i for i, k in enumerate(("cfo_correct", "pilot_track")) if cfg[k]])
@@ -67,53 +61,13 @@ pause = Toggle(label="Pause display", button_type="default")
 status = Div(text="", styles={"color": "#a33"})
 readout = Div(text="", styles={"font-size": "15px"})
 
-
-def used_hint():
-    kmax = 26 * int(n_sel.value) // 64
-    k_input.title = "Subcarrier indices (from -%d to %d, not 0)" % (kmax, kmax)
-
-
-def mask_spec():
-    mode = mode_sel.value
-    if mode == "list":
-        ks = []
-        for tok in k_input.value.replace(",", " ").split():
-            try:
-                ks.append(int(tok))
-            except ValueError:
-                pass
-        return {"mode": "list", "k": ks}
-    if mode == "every":
-        return {"mode": "every", "step": int(step_input.value)}
-    if mode == "paint":
-        return {"mode": "paint", "text": text_input.value}
-    return {"mode": "all"}
-
-
-def show_mask_inputs():
-    k_input.visible = mode_sel.value == "list"
-    step_input.visible = mode_sel.value == "every"
-    text_input.visible = mode_sel.value == "paint"
-
-
-def on_waveform(attr, old, new):
-    used_hint()
-    show_mask_inputs()
-    be.request(fft_len=int(n_sel.value), samp_rate=float(fs_sel.value), spec=mask_spec())
-
-
-for w in (fs_sel, n_sel, mode_sel, k_input, step_input, text_input):
-    w.on_change("value", on_waveform)
-tx_gain.on_change("value_throttled", lambda at, o, n: be.request(tx_gain=float(n)))
-rx_gain.on_change("value_throttled", lambda at, o, n: be.request(rx_gain=float(n)))
-rx_opts.on_change("active", lambda at, o, n: be.request(cfo_correct=0 in n, pilot_track=1 in n))
-used_hint()
-show_mask_inputs()
+for w in (fs_sel, n_sel):
+    w.on_change("value", lambda at, o, n: receiver.retune(int(n_sel.value), float(fs_sel.value)))
+rx_gain.on_change("value_throttled", lambda at, o, n: receiver.set_gain(n))
+rx_opts.on_change("active", lambda at, o, n: receiver.set_options(0 in n, 1 in n))
 
 controls = column(
-    Div(text="<b>Transmitter</b>"), fs_sel, n_sel, mode_sel, k_input, step_input,
-    text_input, tx_gain,
-    Div(text="<b>Receiver</b>"), rx_gain, rx_opts,
+    Div(text="<b>Receiver</b>"), fs_sel, n_sel, rx_gain, rx_opts,
     Div(text="<b>Display</b>"), sc_marks, pause, status, width=280)
 
 # ------------------------------------------------------ tab 1: time-frequency
@@ -247,20 +201,19 @@ def fmt_rate(fs):
 
 
 def update_readout(L):
-    c, p, rx = L["config"], L["params"], L["rx"]
+    p, out = L["params"], L["rx"]
     parts = ["<b>Sample rate</b> %s &nbsp; <b>N</b> = %d" % (fmt_rate(p.fs), p.N)]
-    if c["spec"].get("mode") == "paint":
-        parts.append("receiver off in paint mode")
-    elif rx is None:
-        parts.append("searching for OFDM frames..." if L["searching"] else "collecting samples...")
+    if out is None:
+        parts.append("searching for OFDM frames (do the sample rate and N match the "
+                     "transmitter?)" if L["searching"] else "collecting samples...")
     else:
-        on = L["tx_grid"] != 0
-        snr = -10 * np.log10(np.mean(rx["err"][on] ** 2) + 1e-12)
+        on = out["X"] != 0
+        snr = -10 * np.log10(np.mean(out["err"][on] ** 2) + 1e-12) if on.any() else float("nan")
         parts.append("<b>Measured CFO</b> %+.1f Hz = <b>ε = %+.3f</b> subcarrier spacings"
-                     % (rx["cfo_hz"], rx["eps"]))
+                     % (out["cfo_hz"], out["eps"]))
         parts.append("<b>SNR from error</b> %.1f dB" % snr)
     readout.text = " &nbsp;|&nbsp; ".join(parts)
-    status.text = "" if be.status in ("ok", "starting") else be.status
+    status.text = "" if receiver.status in ("ok", "starting") else receiver.status
 
 
 def update_tab1(L):
@@ -302,12 +255,12 @@ def clear_tab2():
 
 
 def update_tab2(L):
-    p, rx, grid, c = L["params"], L["rx"], L["tx_grid"], L["config"]
+    p, rx, c = L["params"], L["rx"], L["config"]
     if rx is None:
-        tab2_msg.text = ("<i>The receiver is off in paint mode.</i>"
-                         if c["spec"].get("mode") == "paint" else "<i>No frame yet.</i>")
+        tab2_msg.text = "<i>No frame yet.</i>"
         clear_tab2()
         return
+    grid = rx["X"]
     tab2_msg.text = ""
     N = p.N
     k_all = p.k_axis()
@@ -374,11 +327,11 @@ def update_tab2(L):
 
 
 def update_tab3(L):
-    p, rx, grid, c = L["params"], L["rx"], L["tx_grid"], L["config"]
+    p, rx = L["params"], L["rx"]
     if rx is None:
-        tab3_msg.text = ("<i>The receiver is off in paint mode.</i>"
-                         if c["spec"].get("mode") == "paint" else "<i>No frame yet.</i>")
+        tab3_msg.text = "<i>No frame yet.</i>"
         return
+    grid = rx["X"]
     tab3_msg.text = ""
     N = p.N
     kmax = int(p.used.max())
@@ -419,10 +372,10 @@ def update_tab3(L):
 def tick():
     if pause.active:
         return
-    L = be.latest
-    if L is None or be.version == state["version"]:
+    L = receiver.latest
+    if L is None or receiver.version == state["version"]:
         return
-    state["version"] = be.version
+    state["version"] = receiver.version
     update_readout(L)
     t = tabs.active
     if t == 0:
