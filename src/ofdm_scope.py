@@ -116,7 +116,7 @@ leak_th = ColumnDataSource(dict(x=[], y=[]))
 leak_fig = figure(height=260, sizing_mode="stretch_width", x_range=zp_fig.x_range,
                   y_range=Range1d(-60, 5), title="Power in each FFT bin",
                   x_axis_label="FFT bin (subcarrier index k)",
-                  y_axis_label="dB relative to strongest", tools="save")
+                  y_axis_label="dB (0 dB = one whole subcarrier)", tools="save")
 leak_fig.xaxis.ticker = SingleIntervalTicker(interval=1)
 leak_fig.vbar(x="x", top="top", bottom=-60, width=0.6, source=leak_src, color="#4477aa",
               legend_label="received")
@@ -282,8 +282,11 @@ def update_tab2(L):
     f = (np.arange(zp * N) - zp * N // 2) / zp
     view = (f >= lo) & (f <= hi)
     Yk = np.fft.fft(rx["window"])
-    scale = np.median(np.abs(Yk[np.mod(active, N)])) if len(active) else 1.0
-    scale = scale if scale > 0 else 1.0
+    # Scale so that one subcarrier's peak is 1 however far it has shifted:
+    # a frequency offset moves a subcarrier's energy between FFT bins, but
+    # doesn't change the total, so divide by the energy per subcarrier.
+    e_used = np.sum(np.abs(Yk[np.mod(p.used, N)]) ** 2)
+    scale = np.sqrt(e_used / max(len(active), 1)) or 1.0
     zp_meas.data = dict(x=f[view], y=np.abs(Z[view]) / scale)
 
     kv = k_all[(k_all >= lo) & (k_all <= hi)]
@@ -307,7 +310,7 @@ def update_tab2(L):
         zp_parts.data = dict(xs=[], ys=[], color=[])
 
     pw = np.abs(Yk[np.mod(kv, N)]) ** 2
-    ref = np.abs(Yk[np.mod(active, N)]).max() ** 2 if len(active) else pw.max()
+    ref = scale ** 2
     leak_src.data = dict(x=kv, top=np.maximum(10 * np.log10(pw / ref + 1e-12), -60))
     if len(active) == 1:
         th = 20 * np.log10(np.abs(oc.dirichlet(active[0] + eps_shift - kv, N)) + 1e-12)

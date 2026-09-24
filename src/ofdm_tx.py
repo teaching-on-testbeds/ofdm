@@ -77,7 +77,7 @@ def main():
     usrp.set_antenna(a.antenna, 0)
     tb.connect(src, tag, alloc, ifft, cp, scale, usrp)
 
-    print("TX OFDM at %.3f MHz: fs = %g S/s, N = %d, subcarrier spacing = %.1f Hz, "
+    print("TX OFDM at %.6f MHz: fs = %g S/s, N = %d, subcarrier spacing = %.1f Hz, "
           "subcarriers on: %s, TX gain %g dB"
           % (a.freq / 1e6, a.samp_rate, p.N, p.df, desc, a.tx_gain), flush=True)
     try:
