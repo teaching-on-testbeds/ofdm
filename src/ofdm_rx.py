@@ -73,7 +73,9 @@ class Receiver:
         usrp.set_gain(c["rx_gain"], 0)
         usrp.set_antenna(self.antenna, 0)
         # Our sync symbol uses the even subcarriers, so its two halves repeat.
-        sync = digital.ofdm_sync_sc_cfb(p.N, p.cp, True)
+        # A threshold below the default (0.9) still finds frames at low SNR;
+        # false detections are thrown out later (see _process_once).
+        sync = digital.ofdm_sync_sc_cfb(p.N, p.cp, True, 0.6)
         tap = Tap(self)
         tb.connect(usrp, (tap, 0))
         tb.connect(usrp, sync)
