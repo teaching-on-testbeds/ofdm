@@ -287,19 +287,15 @@ def demodulate(p, r, s0, eps, cfo_correct=True, pilot_track=True):
     # the correction off). A subcarrier that is on carries the known data,
     # so its received symbols follow the known symbols from one OFDM symbol
     # to the next; noise, or a spurious tone from the radio itself, does
-    # not. In paint mode, subcarriers go on and off during the frame, so
-    # there we also look at the received power in each symbol.
+    # not. (Compare each symbol with the one before it, so that a phase that
+    # turns slowly during the frame, from a leftover CFO, doesn't matter.)
     Yc = np.fft.fft(rc[idx], axis=1)
     Hc = np.where(used, Yc[1] * ce, 1)
     Z = Yc[2:] / Hc
-    power_on = (np.abs(Z) ** 2 > 0.25) & used[None, :]
-    frac = power_on.mean(axis=0)
-    # (Compare each symbol with the one before it, so that a phase that
-    # turns slowly during the frame, from a leftover CFO, doesn't matter.)
     d = Z * np.conj(grid)
     match = np.abs(np.mean(d[1:] * np.conj(d[:-1]), axis=0)) / (np.mean(np.abs(Z) ** 2, axis=0) + 1e-12)
-    on = power_on & (frac >= 0.1)[None, :] & (frac <= 0.9)[None, :]   # paint mode
-    on[:, used & (frac > 0.9) & (match > 0.5)] = True                    # on all frame
+    on = np.zeros_like(Z, dtype=bool)
+    on[:, used & (match > 0.5)] = True
     X = np.where(on, grid, 0)
 
     # Finally, refine the CFO from how fast the phase of the subcarriers
