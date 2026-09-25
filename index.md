@@ -246,6 +246,9 @@ apt update
 apt -y install python3-venv
 ```
 
+> [!NOTE]
+> `apt update` may warn that it failed to fetch from `repo-i.orbit-lab.org` (a certificate problem on the testbed's own package server). You can ignore that warning, as long as `python3-venv` installs.
+
 Then create a virtual environment that can also use the GNU Radio and UHD packages from the disk image, and install Bokeh in it:
 
 ```bash
@@ -282,7 +285,7 @@ python3 ofdm_tx.py --freq 2400e6
 It prints its settings:
 
 ```console
-TX OFDM at 2400.000 MHz: fs = 1e+06 S/s, N = 64, subcarrier spacing = 15625.0 Hz, subcarriers on: all, TX gain 85 dB
+TX OFDM at 2400.000000 MHz: fs = 1e+06 S/s, N = 64, subcarrier spacing = 15625.0 Hz, subcarriers on: all, TX gain 85 dB
 ```
 
 and keeps sending the same OFDM frame over and over until you stop it with `Ctrl+C`. Throughout this experiment, you will stop the transmitter and start it again with different options. These are the options you will use:
@@ -352,7 +355,7 @@ Finally, run the transmitter with a short word, for example:
 python3 ofdm_tx.py --text NYU
 ```
 
-The transmitter now turns subcarriers on and off over time to spell the word, one row of pixels at a time, and each row lasts many OFDM symbols. Watch it scroll down the waterfall. (Each frame is much longer than usual in this mode, so the other two tabs do not show anything.)
+The transmitter now turns subcarriers on and off over time to spell the word, one row of pixels at a time, and each row lasts many OFDM symbols. Watch it scroll down the waterfall. (Each frame is much longer than usual in this mode, so the other two tabs do not show anything, and the line at the top of the page says the receiver is searching for OFDM frames. That is expected here.)
 
 **Lab report**: Include a screenshot of your word in the waterfall. In a few sentences, explain what each pixel of the picture is, in terms of subcarriers and OFDM symbols.
 
